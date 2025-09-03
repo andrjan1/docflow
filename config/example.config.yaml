@@ -1,0 +1,57 @@
+project:
+  base_dir: ..
+  output_dir: build/output
+  temp_dir: build/tmp
+  log_level: INFO
+
+ai:
+  provider: mock
+  model: mock-text
+  img_model: mock-image
+  api_key_envvar: DUMMY
+
+workflow:
+  actions:
+    - id: gen_abstract
+      type: generative
+      returns: text
+      input_vars:
+        - month
+        - product
+      prompt_fn: "prompts.monthly:build_prompt"
+      kb:
+        enabled: true
+        paths: ["kb/"]
+        strategy: summarize
+      exports:
+        - name: summary_short
+          source: result_text
+          jinja: "{{ result_text.split('\n')[0] if result_text else '' }}"
+    - id: gen_hero
+      type: generative
+      returns: image
+      prompt_file: "prompts/hero.j2"
+    - id: code_plot
+      type: code
+      returns: image
+      deps: ["gen_abstract"]
+      input_vars:
+        - months
+        - values
+        - title
+      code_file: "prompts/plot_sales.py"
+
+  templates:
+    - path: "templates/demo_template.docx"
+      adapter: docx
+      placeholder_map:
+        abstract: gen_abstract
+        hero_img: gen_hero
+        sales_chart: code_plot
+    - path: "templates/demo_template.pptx"
+      adapter: pptx
+      placeholder_map:
+        title: gen_abstract
+        cover_img: gen_hero
+        chart_img: code_plot
+# (kept the initial, full definitions above; removed duplicated shorter blocks)

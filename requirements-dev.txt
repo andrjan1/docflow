@@ -1,0 +1,8 @@
+pytest
+pytest-cov
+black
+ruff
+mypy
+faker
+mimesis
+python-dotenv

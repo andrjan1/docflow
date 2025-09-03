@@ -1,0 +1,48 @@
+project:
+  base_dir: .
+  output_dir: build/output
+  temp_dir: build/tmp
+
+ai:
+  provider: gemini
+  model: gemini-2.5-flash # Modello per la generazione di testo
+  # img_model: gemini-pro-vision # Al momento non esiste un modello Gemini per la generazione di immagini text-to-image
+  api_key_envvar: GEMINI_API_KEY
+
+workflow:
+  actions:
+    # Azione 1: Generativa, da file, con KB da PDF per generare testo
+    - id: genera_riassunto
+      type: generative
+      returns: text
+      prompt_file: "scripts/riassunto_prompt.j2"
+      kb:
+        enabled: true
+        paths: ["data/documento_kb.pdf"]
+        strategy: inline # Estrae il testo dal PDF e lo passa al prompt
+
+    # Azione 3: Codice, inline, per ottenere la data
+    - id: calcola_data
+      type: code
+      returns: text
+      code: |
+        import datetime
+        import json
+        today = datetime.date.today().strftime('%d %B %Y')
+        print('VARS_JSON=' + json.dumps({'data_odierna': today}))
+
+    # Azione 4: Codice, da file esterno, con KB da JSON
+    - id: analizza_dati_vendite
+      type: code
+      returns: text
+      code_file: "scripts/analizzatore_dati.py"
+      # In questo caso, il file Python legge direttamente il JSON,
+      # ma potremmo anche passargli il contenuto via stdin come visto in precedenza.
+
+  templates:
+    - path: "templates/report_template.docx"
+      adapter: docx
+      placeholder_map:
+        data_odierna: calcola_data
+        riassunto_prodotto: genera_riassunto
+        analisi_vendite: analizza_dati_vendite

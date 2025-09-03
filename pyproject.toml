@@ -1,0 +1,27 @@
+[tool.black]
+line-length = 88
+
+[tool.ruff]
+line-length = 88
+
+[tool.mypy]
+python_version = "3.13"
+
+[project]
+name = "docflow"
+version = "0.0.0"
+description = "Document generation workflow"
+dependencies = [
+	"pydantic>=2",
+	"pyyaml",
+	"python-dotenv",
+	"python-docx",
+	"python-pptx",
+	"jinja2",
+	"rich",
+	"typer[all]",
+	"matplotlib",
+	"openai>=1.0.0",
+	"google-generativeai",
+	"pypdf",
+]

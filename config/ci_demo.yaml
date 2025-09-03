@@ -1,0 +1,36 @@
+project:
+  base_dir: .
+  output_dir: build/output
+  temp_dir: build/tmp
+  log_level: INFO
+
+ai:
+  provider: mock
+  model: mock-text
+
+workflow:
+  templates:
+    - path: templates/demo_template.docx
+      adapter: docx
+    - path: templates/demo_template.pptx
+      adapter: pptx
+
+  actions:
+    - id: gen1
+      type: generative
+      returns: text
+      prompt: "Hello from CI demo"
+    - id: code1
+      type: code
+      returns: image
+      code: |
+        def run(vars):
+            import matplotlib.pyplot as plt
+            import io
+            fig, ax = plt.subplots()
+            ax.plot([1,2,3],[1,4,9])
+            ax.set_title(vars.get('greeting','chart'))
+            bio = io.BytesIO()
+            fig.savefig(bio, format='png')
+            bio.seek(0)
+            return {'vars': {'charted': True}, 'image_chart': bio.getvalue()}

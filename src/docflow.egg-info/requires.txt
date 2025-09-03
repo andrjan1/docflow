@@ -1,0 +1,12 @@
+pydantic>=2
+pyyaml
+python-dotenv
+python-docx
+python-pptx
+jinja2
+rich
+typer[all]
+matplotlib
+openai>=1.0.0
+google-generativeai
+pypdf

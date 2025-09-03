@@ -1,0 +1,33 @@
+project:
+  base_dir: .
+  output_dir: build/output
+  temp_dir: build/tmp
+
+ai:
+  provider: mock
+
+workflow:
+  actions:
+    - id: gen_with_kb
+      type: generative
+      returns: text
+      prompt: "Fornisci un sommario dei documenti allegati"
+      attachments:
+        paths: ["kb/*.md", "kb/*.pdf"]
+        as_text: true
+        upload: false
+    - id: gen_with_upload
+      type: generative
+      returns: text
+      prompt: "Analizza i riferimenti remoti allegati"
+      attachments:
+        paths: ["kb/*.pdf"]
+        upload: true
+        mime: "application/pdf"
+
+  templates:
+    - path: templates/demo_template.docx
+      adapter: docx
+      placeholder_map:
+        summary: gen_with_kb
+        remote_note: gen_with_upload

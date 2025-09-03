@@ -1,0 +1,27 @@
+type: object
+properties:
+  templates:
+    type: array
+  actions:
+    type: array
+required: [templates, actions]
+
+# Attachments schema for actions
+attachments:
+  type: object
+  properties:
+    paths:
+      type: array
+      items:
+        type: string
+      description: "List of file paths or glob patterns to include as attachments"
+    as_text:
+      type: boolean
+      description: "If true, extract textual content from attachments and concatenate to prompt"
+    upload:
+      type: boolean
+      description: "If true, attempt to upload attachments to the configured AI provider when supported"
+    mime:
+      type: string
+      description: "Suggested MIME type for uploads (e.g. application/pdf)"
+  additionalProperties: false
