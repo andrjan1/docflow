@@ -36,14 +36,30 @@ DocFlow è un piccolo framework per generare documenti (DOCX, PPTX) combinando a
 	- `run`: esegue l'intero workflow e scrive i file di output
 	- `inspect-template`: elenca i placeholder trovati in un template
 
+## Setup e Installazione
+
+Prima di utilizzare DocFlow, è necessario installare il pacchetto in modalità sviluppo:
+
+```powershell
+# Installa le dipendenze
+pip install -r requirements.txt -r requirements-dev.txt
+
+# Installa il pacchetto in modalità sviluppo (editable mode)
+pip install -e .
+```
+
+Il comando `pip install -e .` è necessario per rendere il modulo `docflow` importabile da Python. Senza questo passaggio, riceverai un errore `ModuleNotFoundError: No module named 'docflow'`.
+
 Esempi CLI (PowerShell):
 ```powershell
-python -m docflow.cli init
-python -m docflow.cli config-validate config/example.config.yaml
-python -m docflow.cli dry-run config/example.config.yaml
-python -m docflow.cli run config/example.config.yaml
-python -m docflow.cli inspect-template templates/demo_template.docx --adapter docx
+python -m docflow.cli.app init
+python -m docflow.cli.app config-validate config/example.config.yaml
+python -m docflow.cli.app dry-run config/example.config.yaml
+python -m docflow.cli.app run config/example.config.yaml
+python -m docflow.cli.app inspect-template templates/demo_template.docx --adapter docx
 ```
+
+**Nota**: Il modulo CLI corretto è `docflow.cli.app`, non solo `docflow.cli`.
 
 ### Actions
 
@@ -200,6 +216,21 @@ adapter.save('build/output/demo.docx')
 
 Nota: i moduli si trovano nel pacchetto `docflow` (API stabile).
 
+## Esempio di esecuzione rapida
+
+Per testare DocFlow con l'esempio fornito:
+
+```powershell
+# Dalla directory del progetto
+python -m docflow.cli.app run example/config.yaml --verbose
+```
+
+Questo comando:
+1. Carica la configurazione da `example/config.yaml`
+2. Esegue le azioni definite nel workflow (generazione AI, codice Python)
+3. Produce il documento finale in `example/build/output/report.docx`
+4. Mostra log dettagliati con `--verbose`
+
 ## Testing e sviluppo
 
 - I test sono presenti nella cartella `tests/`. Per eseguirli in ambiente con dipendenze installate:
@@ -209,6 +240,42 @@ python -m pytest -q
 ```
 
 I test possono richiedere librerie (python-docx, python-pptx, matplotlib). Se mancano, alcuni test vengono saltati.
+
+## Risoluzione problemi comuni
+
+### Errore "ModuleNotFoundError: No module named 'docflow'"
+
+Se ricevi questo errore quando esegui i comandi CLI, significa che il pacchetto non è installato correttamente. Esegui:
+
+```powershell
+pip install -e .
+```
+
+### Errore "Unable to create process using python.exe"
+
+Se pip cerca di usare un Python in un percorso diverso, assicurati di:
+1. Attivare il virtual environment corretto
+2. Usare il percorso completo del Python del tuo ambiente virtuale
+3. Verificare che il virtual environment sia nella directory corretta del progetto
+
+### Problemi con l'ambiente virtuale
+
+Se hai problemi con l'ambiente virtuale, ricrea l'ambiente:
+
+```powershell
+# Rimuovi l'ambiente esistente (se presente)
+Remove-Item -Recurse -Force .venv
+
+# Crea un nuovo ambiente
+python -m venv .venv
+
+# Attiva l'ambiente
+.venv\Scripts\Activate.ps1
+
+# Installa le dipendenze
+pip install -r requirements.txt -r requirements-dev.txt
+pip install -e .
+```
 
 ## Note e prossimi passi
 
