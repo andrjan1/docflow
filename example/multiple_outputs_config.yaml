@@ -1,0 +1,99 @@
+version: 1
+
+name: "Demo Output Multipli"
+description: "Esempio di azioni che restituiscono sia testo che variabili simultaneamente"
+
+ai:
+  provider: gemini
+  model: gemini-2.5-flash # Modello per la generazione di testo
+  # img_model: gemini-pro-vision # Al momento non esiste un modello Gemini per la generazione di immagini text-to-image
+  api_key_envvar: GEMINI_API_KEY
+
+kb:
+  strategy: "inline"
+  files:
+    - "data/dati_vendite.json"
+
+workflow:
+  actions:
+    - id: analisi_vendite
+      type: generative
+      returns: ["text", "vars"]  # Output multipli!
+      prompt: |
+        Analizza i dati di vendita nel knowledge base e fornisci:
+        
+        TESTO: Un breve riassunto delle performance di vendita
+        VARIABILI: Le metriche principali nel formato:
+        fatturato_totale=XXXXX
+        numero_clienti=XX
+        crescita_percentuale=XX.X
+        periodo=Q1_2024
+        
+        Struttura la risposta esattamente con le sezioni TESTO: e VARIABILI:.
+
+    - id: calcolo_metriche
+      type: code
+      returns: ["vars", "text"]  # Output multipli in ordine diverso
+      code: |
+        def main(ctx):
+            # Usa le variabili dall'azione precedente
+            fatturato = float(getattr(ctx, 'fatturato_totale', 0))
+            clienti = int(getattr(ctx, 'numero_clienti', 0))
+            
+            # Calcola nuove metriche
+            ricavo_medio = fatturato / clienti if clienti > 0 else 0
+            categoria = "Alto" if ricavo_medio > 2000 else "Medio" if ricavo_medio > 1000 else "Basso"
+            
+            # Return tuple: (vars, text)
+            metriche = {
+                'ricavo_medio_cliente': round(ricavo_medio, 2),
+                'categoria_performance': categoria,
+                'fatturato_k': round(fatturato / 1000, 1)
+            }
+            
+            rapporto = f"""
+            📊 METRICHE CALCOLATE:
+            • Ricavo medio per cliente: €{ricavo_medio:,.2f}
+            • Categoria performance: {categoria}
+            • Fatturato (K€): {round(fatturato/1000, 1)}
+            """
+            
+            return metriche, rapporto
+
+    - id: calcola_data
+      type: code
+      returns: "text"
+      code: |
+        import datetime
+        import json
+        today = datetime.date.today().strftime('%d %B %Y')
+        print('VARS_JSON=' + json.dumps({'data_odierna': today}))
+        print(f"Data corrente: {today}")
+
+    - id: report_finale
+      type: generative
+      returns: "text"  # Output singolo che usa le variabili
+      prompt: |
+        Crea un report esecutivo finale usando tutte le informazioni disponibili:
+        
+        DATI ORIGINALI:
+        - Fatturato: €{{fatturato_totale}}
+        - Clienti: {{numero_clienti}}
+        - Crescita: {{crescita_percentuale}}%
+        - Periodo: {{periodo}}
+        
+        METRICHE ELABORATE:
+        - Ricavo medio: €{{ricavo_medio_cliente}}
+        - Performance: {{categoria_performance}}
+        - Fatturato K€: {{fatturato_k}}
+        
+        Scrivi un report professionale di 2-3 frasi che sintetizza la situazione.
+
+  templates:
+    - name: report_multipli
+      adapter: docx
+      path: templates/report_template.docx
+      placeholder_map:
+        data_odierna: calcola_data           # Usa l'azione per la data
+        riassunto_prodotto: analisi_vendite  # Usa il testo dall'azione multipla  
+        analisi_vendite: calcolo_metriche    # Usa il testo dall'azione code

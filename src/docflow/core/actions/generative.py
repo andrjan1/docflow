@@ -137,7 +137,15 @@ class GenerativeAction:
                     latency = time.time() - start
                     meta = out.get('meta', {})
                     meta.update({'latency': latency, 'out_bytes': len(text.encode('utf-8')), 'attempts': attempt, 'vars_emitted': len(vars_out)})
-                    return ActionResult(kind='text', data=text, meta=meta, vars=vars_out)
+                    
+                    # Check if multiple outputs are requested
+                    returns = self.cfg.get('returns', 'text')
+                    if isinstance(returns, list) and len(returns) > 1:
+                        # Handle multiple outputs
+                        return self._handle_multiple_outputs(text, vars_out, returns, meta)
+                    else:
+                        # Single output (existing behavior)
+                        return ActionResult(kind='text', data=text, meta=meta, vars=vars_out)
             except Exception as e:  # store and retry
                 last_exc = e
                 logger.info({'event': 'generative_attempt_error', 'attempt': attempt, 'error': str(e)})
@@ -145,3 +153,55 @@ class GenerativeAction:
                     time.sleep(0.5 * attempt)
         # all attempts failed
         raise last_exc or RuntimeError('generative action failed')
+    
+    def _handle_multiple_outputs(self, text: str, vars_out: dict, returns: list, meta: dict):
+        """Handle multiple output types from a single generative action"""
+        import re
+        
+        outputs = []
+        
+        # Try to parse structured response
+        if 'text' in returns and 'vars' in returns:
+            # Look for structured format like:
+            # TESTO: content here
+            # VARIABILI: var1=value1, var2=value2
+            
+            text_match = re.search(r'TESTO:\s*(.+?)(?=VARIABILI:|$)', text, re.DOTALL | re.IGNORECASE)
+            vars_match = re.search(r'VARIABILI:\s*(.+)', text, re.DOTALL | re.IGNORECASE)
+            
+            # Extract text part
+            if text_match:
+                extracted_text = text_match.group(1).strip()
+            else:
+                # Fallback: use everything before VARIABILI: or entire text
+                var_start = text.lower().find('variabili:')
+                extracted_text = text[:var_start].strip() if var_start != -1 else text
+            
+            # Extract variables
+            extracted_vars = vars_out.copy()
+            if vars_match:
+                vars_text = vars_match.group(1).strip()
+                # Parse both comma-separated and newline-separated key=value pairs
+                separators = [',', '\n']
+                pairs = []
+                
+                # Try different separators
+                for sep in separators:
+                    if sep in vars_text:
+                        pairs = vars_text.split(sep)
+                        break
+                else:
+                    # No separator found, treat as single pair
+                    pairs = [vars_text]
+                
+                for pair in pairs:
+                    pair = pair.strip()
+                    if '=' in pair:
+                        key, value = pair.split('=', 1)
+                        extracted_vars[key.strip()] = value.strip()
+            
+            # Return tuple for multiple outputs
+            return (extracted_text, extracted_vars)
+        
+        # Fallback: return original for single or unsupported combinations
+        return ActionResult(kind='text', data=text, meta=meta, vars=vars_out)

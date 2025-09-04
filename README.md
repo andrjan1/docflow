@@ -6,7 +6,7 @@ Questa documentazione descrive i componenti del progetto DocFlow, come comunican
 DocFlow è un piccolo framework per generare documenti (DOCX, PPTX) combinando azioni che producono testo/immagini con template Office. Le componenti principali sono:
 - CLI: comandi per inizializzare un progetto, validare la config, eseguire una dry-run o generare i documenti.
 - Config: definisce la forma del file YAML di configurazione (`src/docflow/config.py`).
-- Actions: moduli che producono output (testo, immagini, variabili). Attualmente ci sono due tipi principali: `GenerativeAction` (mock) e `CodeAction` (esegue codice Python fornito dall'utente).
+- Actions: moduli che producono output (testo, immagini, variabili). Attualmente ci sono due tipi principali: `GenerativeAction` (mock) e `CodeAction` (esegue codice Python fornito dall'utente). **Supporta ora output multipli** - un'azione può restituire simultaneamente testo e variabili.
 - Adapters: adapter per template Office — `DocxAdapter` e `PptxAdapter` — responsabili del caricamento del template, sostituzione dei placeholder e inserimento di immagini.
 - Prompt builder / KB: componenti per costruire prompt (Jinja, file .py) e preparare conoscenza (kb) per le azioni.
 
@@ -257,6 +257,93 @@ kb:
     upload: true
     as_text: true
 ```
+
+### Output Multipli
+
+**Novità:** DocFlow supporta ora azioni che possono restituire simultaneamente **testo e variabili** (o altre combinazioni di output). Questo è utile quando un'azione deve produrre sia contenuto per il documento finale che dati da utilizzare in azioni successive.
+
+**Configurazione Output Multipli:**
+```yaml
+- id: analisi_vendite
+  type: generative
+  returns: ["text", "vars"]  # Restituisce ENTRAMBI testo e variabili
+  prompt: |
+    Analizza i dati e fornisci:
+    
+    TESTO: Un breve riassunto delle performance
+    VARIABILI: Le metriche nel formato:
+    fatturato_totale=XXXXX
+    numero_clienti=XX
+    crescita_percentuale=XX.X
+    
+    Struttura la risposta con le sezioni TESTO: e VARIABILI:.
+```
+
+**Valori supportati per `returns`:**
+- `"text"` - Solo testo (comportamento classico)
+- `"vars"` - Solo variabili 
+- `"image"` - Solo immagine
+- `["text", "vars"]` - Testo + variabili simultaneamente
+- `["vars", "text"]` - Variabili + testo (ordine diverso)
+- `["text", "image"]` - Testo + immagine
+
+**Azioni Code con Output Multipli:**
+```yaml
+- id: calcolo_metriche
+  type: code
+  returns: ["vars", "text"]  # Ordine: variabili prima, testo dopo
+  code: |
+    def main(ctx):
+        # Usa variabili dall'azione precedente
+        fatturato = float(getattr(ctx, 'fatturato_totale', 0))
+        clienti = int(getattr(ctx, 'numero_clienti', 0))
+        
+        # Calcola nuove metriche
+        ricavo_medio = fatturato / clienti if clienti > 0 else 0
+        categoria = "Alto" if ricavo_medio > 2000 else "Basso"
+        
+        # Restituisce tuple: (vars, text) secondo returns
+        metriche = {
+            'ricavo_medio_cliente': round(ricavo_medio, 2),
+            'categoria_performance': categoria
+        }
+        
+        rapporto = f"Ricavo medio: €{ricavo_medio:,.2f} ({categoria})"
+        
+        return metriche, rapporto  # Tuple per output multipli
+```
+
+**Vantaggi degli Output Multipli:**
+
+1. **Efficienza**: Un'unica chiamata AI produce sia contenuto che dati strutturati
+2. **Consistenza**: Testo e variabili provengono dalla stessa analisi
+3. **Flessibilità**: Diverse combinazioni di output per casi d'uso specifici
+4. **Propagazione**: Le variabili sono automaticamente disponibili per azioni successive
+
+**Esempio Completo:**
+```yaml
+workflow:
+  actions:
+    # Azione con output multipli
+    - id: analisi_dati
+      type: generative
+      returns: ["text", "vars"]
+      prompt: "Analizza e restituisci TESTO: + VARIABILI:"
+    
+    # Azione che usa le variabili dell'azione precedente
+    - id: report_finale
+      type: generative
+      returns: "text"
+      prompt: |
+        Genera report usando:
+        - Fatturato: €{{fatturato_totale}}
+        - Clienti: {{numero_clienti}}
+        - Crescita: {{crescita_percentuale}}%
+```
+
+**Compatibilità**: Le azioni esistenti con `returns: "text"` continuano a funzionare senza modifiche.
+
+**File di Esempio**: Consulta `example/multiple_outputs_config.yaml` per un esempio completo funzionante con Gemini che dimostra tutti i casi d'uso degli output multipli.
 
 ### Best Practices per Knowledge Base
 
@@ -512,15 +599,20 @@ Nota: i moduli si trovano nel pacchetto `docflow` (API stabile).
 Per testare DocFlow con l'esempio fornito:
 
 ```powershell
-# Dalla directory del progetto
+# Dalla directory del progetto - esempio base
 python -m docflow.cli.app run example/config.yaml --verbose
+
+# Esempio con output multipli e Gemini AI
+python -m docflow.cli.app run example/multiple_outputs_config.yaml --verbose
 ```
 
 Questo comando:
-1. Carica la configurazione da `example/config.yaml`
+1. Carica la configurazione da `example/config.yaml` (o `multiple_outputs_config.yaml`)
 2. Esegue le azioni definite nel workflow (generazione AI, codice Python)
 3. Produce il documento finale in `example/build/output/report.docx`
 4. Mostra log dettagliati con `--verbose`
+
+Il secondo esempio dimostra la nuova funzionalità degli **output multipli** dove le azioni restituiscono simultaneamente testo e variabili.
 
 ## Testing e sviluppo
 

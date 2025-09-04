@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Literal
+from typing import List, Dict, Optional, Literal, Union
 from pathlib import Path
 import yaml
 
@@ -54,7 +54,7 @@ class ExportRule(BaseModel):
 class ActionConfig(BaseModel):
     id: str
     type: Literal['generative', 'code']
-    returns: Literal['text', 'image', 'bytes'] = 'text'
+    returns: Union[Literal['text', 'image', 'bytes'], List[Literal['text', 'image', 'bytes', 'vars']]] = 'text'
     deps: List[str] = Field(default_factory=list)
     input_vars: List[str] = Field(default_factory=list)
     prompt: Optional[str] = None

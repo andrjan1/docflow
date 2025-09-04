@@ -84,12 +84,51 @@ def execute_workflow(actions: List[Dict[str, Any]], ctx: ExecutionContext) -> Di
         
         # Log action result if verbose
         if getattr(ctx, 'verbose', False) and res:
-            result_preview = str(res.data)[:200] + '...' if res.data and len(str(res.data)) > 200 else str(res.data)
-            logger.info({'event': 'action_result', 'id': ad.get('id'), 'kind': res.kind, 'preview': result_preview})
+            if isinstance(res, (list, tuple)):
+                # Multiple outputs
+                result_preview = f"Multiple outputs: {len(res)} items"
+            else:
+                # Single output
+                result_preview = str(res.data)[:200] + '...' if res.data and len(str(res.data)) > 200 else str(res.data)
+            logger.info({'event': 'action_result', 'id': ad.get('id'), 'result_type': type(res).__name__, 'preview': result_preview})
         
         logger.info({'event': 'action_end', 'id': ad.get('id'), 'duration_s': round(action_duration, 3)})
-        # normalize to ActionResult if dict
-        if isinstance(res, dict):
+        
+        # Handle multiple outputs or single output
+        ar = None
+        if isinstance(res, (list, tuple)) and len(res) > 1:
+            # Multiple outputs - handle each according to returns specification
+            returns_spec = ad.get('returns', 'text')
+            if isinstance(returns_spec, list):
+                # Process multiple outputs
+                results = []
+                vars_combined = {}
+                
+                for i, (output, return_type) in enumerate(zip(res, returns_spec)):
+                    if return_type == 'vars' and isinstance(output, dict):
+                        # Variables go into combined vars
+                        vars_combined.update(output)
+                        results.append(ActionResult(kind='vars', data=output, vars=output))
+                    elif return_type in ['text', 'image', 'bytes']:
+                        results.append(ActionResult(kind=return_type, data=output))
+                
+                # Create combined result with primary data from first non-vars result
+                primary_result = next((r for r in results if r.kind != 'vars'), results[0] if results else None)
+                if primary_result:
+                    ar = ActionResult(
+                        kind=primary_result.kind,
+                        data=primary_result.data,
+                        vars=vars_combined,
+                        meta={'multiple_outputs': True, 'output_count': len(results)}
+                    )
+                else:
+                    ar = ActionResult(kind='vars', data={}, vars=vars_combined)
+            else:
+                # Single return type expected but got multiple - use first
+                ar = ActionResult(kind=returns_spec, data=res[0], vars={})
+        
+        # Single output (existing logic)
+        elif isinstance(res, dict):
             # prefer explicit keys
             if 'result_text' in res:
                 kind = 'text'
@@ -114,6 +153,7 @@ def execute_workflow(actions: List[Dict[str, Any]], ctx: ExecutionContext) -> Di
             ar = res
         else:
             ar = ActionResult(kind='text', data=str(res), meta={}, vars={})
+            
         # update global vars
         ctx.global_vars.update(ar.vars)
         # apply exports

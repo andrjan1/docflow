@@ -29,17 +29,43 @@ from matplotlib import pyplot as plt
     footer = """
 
 result = None
+# Try different function names for entry point
 if 'run' in globals():
     try:
         result = run(vars)
     except Exception as e:
         print('ERROR_IN_USER_CODE:' + str(e), file=sys.stderr)
         sys.exit(1)
+elif 'main' in globals():
+    try:
+        # Create a context-like object
+        class Context:
+            def __init__(self, vars_data):
+                for k, v in vars_data.items():
+                    setattr(self, k, v)
+        
+        ctx = Context(vars)
+        result = main(ctx)
+    except Exception as e:
+        print('ERROR_IN_USER_CODE:' + str(e), file=sys.stderr)
+        sys.exit(1)
 else:
-    # if the user didn't define run, try to use a top-level result variable
+    # if the user didn't define run or main, try to use a top-level result variable
     result = globals().get('result', None)
 
-if isinstance(result, dict):
+# Handle different result types
+if isinstance(result, tuple):
+    # Multiple outputs case - encode as special JSON structure
+    print('MULTIPLE_OUTPUTS=' + json.dumps({
+        'is_tuple': True,
+        'items': [
+            {'type': 'dict', 'data': item} if isinstance(item, dict) 
+            else {'type': 'str', 'data': str(item)} if isinstance(item, str)
+            else {'type': 'other', 'data': str(item)}
+            for item in result
+        ]
+    }))
+elif isinstance(result, dict):
     # emit vars as JSON on a predictable line
     v = result.get('vars', {})
     try:
@@ -60,6 +86,9 @@ if isinstance(result, dict):
     # also, if there's a textual result
     if 'result_text' in result and result.get('result_text'):
         print(result.get('result_text'))
+elif result is not None:
+    # Single value result
+    print(str(result))
 """
     return header + code + footer
 
@@ -99,12 +128,19 @@ class CodeAction:
         vars_out: Dict[str, Any] = {}
         image_path: str | None = None
         text_lines: List[str] = []
+        multiple_outputs_result = None
+        
         for line in stdout.splitlines():
             if line.startswith('VARS_JSON='):
                 try:
                     j = json.loads(line[len('VARS_JSON='):])
                     if isinstance(j, dict):
                         vars_out.update(j)
+                except Exception:
+                    pass
+            elif line.startswith('MULTIPLE_OUTPUTS='):
+                try:
+                    multiple_outputs_result = json.loads(line[len('MULTIPLE_OUTPUTS='):])
                 except Exception:
                     pass
             else:
@@ -114,12 +150,51 @@ class CodeAction:
                 else:
                     text_lines.append(candidate)
 
-        if self.cfg.get('returns') == 'image' and image_path:
-            p = Path(image_path)
-            if p.exists():
-                logger.info({'event': 'code_action_image_success', 'id': self.cfg.get('id'), 'image_path': str(p)})
-                return ActionResult(kind='image', data=str(p), meta={'returncode': proc.returncode}, vars=vars_out)
-
         text = '\n'.join([line for line in text_lines if line])
         logger.info({'event': 'code_action_text_success', 'id': self.cfg.get('id'), 'chars': len(text)})
-        return ActionResult(kind='text', data=text, meta={'returncode': proc.returncode}, vars=vars_out)
+        
+        # Check if we have multiple outputs from the code execution
+        returns = self.cfg.get('returns', 'text')
+        if multiple_outputs_result and isinstance(returns, list) and len(returns) > 1:
+            # Parse the multiple outputs result
+            items = multiple_outputs_result.get('items', [])
+            outputs = []
+            
+            for i, return_type in enumerate(returns):
+                if i < len(items):
+                    item = items[i]
+                    if return_type == 'vars' and item['type'] == 'dict':
+                        outputs.append(item['data'])
+                    elif return_type == 'text' and item['type'] in ['str', 'other']:
+                        outputs.append(item['data'])
+                    elif return_type == 'image' and item['type'] in ['str', 'other']:
+                        outputs.append(item['data'])
+                    else:
+                        outputs.append(item['data'])
+                else:
+                    outputs.append(None)
+            
+            return tuple(outputs)
+        elif isinstance(returns, list) and len(returns) > 1:
+            # Handle multiple outputs with existing vars_out logic
+            outputs = []
+            for return_type in returns:
+                if return_type == 'vars':
+                    outputs.append(vars_out)
+                elif return_type == 'image' and image_path:
+                    outputs.append(image_path)
+                elif return_type == 'text':
+                    outputs.append(text)
+                else:
+                    outputs.append(None)  # Placeholder for unsupported types
+            
+            return tuple(outputs)
+        else:
+            # Single output (existing behavior)
+            if self.cfg.get('returns') == 'image' and image_path:
+                p = Path(image_path)
+                if p.exists():
+                    logger.info({'event': 'code_action_image_success', 'id': self.cfg.get('id'), 'image_path': str(p)})
+                    return ActionResult(kind='image', data=str(p), meta={'returncode': proc.returncode}, vars=vars_out)
+            
+            return ActionResult(kind='text', data=text, meta={'returncode': proc.returncode}, vars=vars_out)
