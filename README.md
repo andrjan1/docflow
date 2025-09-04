@@ -3,11 +3,7 @@
 Questa documentazione descrive i componenti del progetto DocFlow, come comunicano tra loro e come usarli sia da riga di comando che programmaticamente.
 ## Panoramica
 
-DocFlow è un piccolo framework per generare documenti (DOCX, PPTX) combinando azioni che producono testo/immagini con### Uso di `.enLa CLI car`python-dotenv` è presente in `requirements-dev.txt` per sviluppo; installalo nelle tue dipendenze di sviluppo se vuoi usarlo localmente.ca automaticamente `.env` quando eseguita (se `python-dotenv` è installato). In codice Python usa `python-dotenv` oppure `os.getenv` dopo il caricamento:` e `python-dotenv`
-
-Per comodità puoi mettere le chiavi API in un file `.env` nella root del progetto. Questo repository include `.env` in `.gitignore` per evitare commit accidentali.
-
-Esempio di `.env` (non commettere questo file): comodLa CLI car`python-dotenv` è presente in `requirements-dev.txt` per sviluppo; installalo nelle tue dipendenze di sviluppo se vuoi usarlo localmente.ca automaticamente `.env` quando eseguita (se `python-dotenv` è installato). In codice Python usa `python-dotenv` oppure `os.getenv` dopo il caricamento:tà puoi mettere le chiavi API in un file `.env` nella root del progetto. Questo repository include `.env` in `.gitignore` per evitare commit accidentali.mplate Office. Le componenti principali sono:
+DocFlow è un piccolo framework per generare documenti (DOCX, PPTX) combinando azioni che producono testo/immagini con template Office. Le componenti principali sono:
 - CLI: comandi per inizializzare un progetto, validare la config, eseguire una dry-run o generare i documenti.
 - Config: definisce la forma del file YAML di configurazione (`src/docflow/config.py`).
 - Actions: moduli che producono output (testo, immagini, variabili). Attualmente ci sono due tipi principali: `GenerativeAction` (mock) e `CodeAction` (esegue codice Python fornito dall'utente).
@@ -86,59 +82,179 @@ Placeholder supportati:
 - Variabili: `{{ name }}` o `{{some:var}}` — il codice rimuove eventuali prefissi (`something:var`) e cerca la chiave nel `mapping` o in `global_vars`.
 - Immagini: `{{image:key}}` — se la chiave `key` nel contesto è un `bytes` viene inserita un'immagine nel documento (dimensione fissa nel codice). Se è una stringa path (solo PPTX), il codice prova ad aprire il file.
 
-### Prompt builder e KB
+### Prompt builder e Knowledge Base (KB)
 
 - File: `src/docflow/runtime/prompt_builder.py`
 - Il progetto supporta tre modi per costruire prompt per azioni generative:
 	- Template inline (stringa) con Jinja2
 	- File `.j2` (Jinja)
 	- File `.py` che espone `build_prompt(vars, kb_text)`
-- KB (knowledge base): esiste una componente che può caricare file Markdown, sintetizzarli o fornirli inline alle azioni (strategia configurabile).
 
-### Attachments (inviare file alle action/provider)
+### Sistema KB Unificato
 
-DocFlow ora supporta la dichiarazione di `attachments` per un'azione. Le opzioni principali per ogni action sono:
+DocFlow implementa un sistema unificato di Knowledge Base che combina estrazione di testo e upload di file binari. Tutte le configurazioni sono gestite tramite il parametro `kb`:
 
-- `attachments.paths`: lista di percorsi o glob (assoluti o relativi) che indicano i file da allegare.
-- `attachments.as_text`: se true, DocFlow estrae il testo dai file (md, txt, docx, pdf, csv, json) e lo concatena al prompt.
-- `attachments.upload`: se true, e se il provider AI implementa `upload_file`, DocFlow caricherà i file al provider e passerà i riferimenti remoti all'API (chiave `attachments`).
-- `attachments.mime`: mime type suggerito per l'upload (es. `application/pdf`).
-
-Esempio di action con attachments:
-
+**Configurazione KB:**
 ```yaml
-- id: gen_doc
-	type: generative
-	prompt: "Analizza i documenti allegati e fornisci un sommario"
-	attachments:
-		paths: ["kb/*.pdf", "kb/data.csv"]
-		as_text: true
-		upload: true
-		mime: "application/pdf"
+kb:
+  enabled: true
+  strategy: "inline"  # inline, upload, hybrid, summarize, retrieve
+  paths: ["data/*.pdf", "docs/*.md", "kb/**/*.txt"]
+  max_chars: 10000   # limite caratteri per strategia inline
+  upload: true       # carica file binari ai provider AI
+  as_text: true      # estrai testo dai file
+  mime_type: "application/pdf"  # MIME type per upload
 ```
 
-Comportamento:
+**Strategie KB disponibili:**
 
-- Se `upload` è true, DocFlow prova a chiamare `ai_client.upload_file(path, mime_type=...)` per ogni file. L'implementazione è provider-specifica (MockProvider restituisce un riferimento di test; Gemini/OpenAI hanno wrapper condizionali).
-- Se l'upload fallisce o non è disponibile, e `as_text` è true (o sempre, se non ci sono refs remoti), il testo viene estratto localmente usando `src/docflow/kb/loader.py`.
-- I riferimenti remoti (se presenti) vengono inviati alla chiamata di generazione come `attachments=[...]` — il provider decide come usarli.
+1. **`inline`**: Estrae testo dai file e lo include nel prompt
+   - Parametrizzabile con `max_chars` per limitare la lunghezza
+   - Supporta tutti i formati: PDF, DOCX, MD, TXT, JSON, CSV
 
-Provider supporto upload (implementazione attuale):
+2. **`upload`**: Carica file binari direttamente ai provider AI
+   - Utilizza le API native dei provider (Gemini File API, OpenAI Files)
+   - Rilevamento automatico MIME type
+   - Mantiene file binari nativi per migliore elaborazione AI
 
-- MockProvider: `upload_file` restituisce un riferimento fittizio (utile per test).
-- GeminiProvider: se `google.generativeai` è installato e espone `upload_file`, il wrapper lo usa.
-- OpenAIProvider: usa `openai.File.create` quando disponibile (legacy API). Potrebbe richiedere permessi/uso specifico (es. purpose 'answers').
+3. **`hybrid`**: Combina upload binario + testo estratto
+   - Offre il meglio di entrambi gli approcci
+   - File binari per elaborazione AI nativa + testo per trasparenza
 
-Best practices:
+4. **`summarize`**: Crea riassunti automatici dei documenti
+   - Genera snippet di ~300 caratteri per documento
+   - Ideale per overview di grandi quantità di contenuto
 
-- Per documenti di testo (md/txt/docx/json/csv) preferisci `as_text` per trasparenza e privacy.
-- Per file complessi (PDF con immagini/tabelle) considera `upload` quando il provider supporta processing nativo dei file.
-- Per retrieval frequente, considera indicizzazione separata (embeddings + vector DB) piuttosto che upload ad ogni chiamata.
+5. **`retrieve`**: Ricerca semantica nel contenuto
+   - Trova sezioni rilevanti basate sulle variabili del contesto
+   - Estrae contesto di ~400 caratteri attorno alle corrispondenze
+
+**Esempio completo di action con KB:**
+
+```yaml
+- id: analizza_documenti
+  type: generative
+  prompt: "Analizza i documenti della knowledge base e fornisci insights"
+  kb:
+    enabled: true
+    strategy: "hybrid"
+    paths: ["knowledge/*.pdf", "reports/**/*.docx", "data/*.json"]
+    max_chars: 15000
+    upload: true
+    as_text: true
+```
+
+### Best Practices per Knowledge Base
+
+**Scelta della strategia:**
+- **`inline`**: Ideale per documenti di testo (MD, TXT, JSON) dove vuoi trasparenza e controllo del contenuto
+- **`upload`**: Migliore per PDF complessi con immagini/tabelle, sfrutta l'elaborazione AI nativa
+- **`hybrid`**: Quando hai bisogno di entrambi gli approcci per analisi complete
+- **`summarize`**: Per overview rapide di grandi volumi di documenti
+- **`retrieve`**: Per ricerche mirate e contestuali nella knowledge base
+
+**Ottimizzazione performance:**
+- Usa `max_chars` appropriato per limitare il token usage (default: 10000)
+- Per upload frequenti, considera cache o indicizzazione separata
+- Glob pattern specifici (`*.pdf`) sono più efficienti di pattern generici (`**/*`)
+
+**Gestione file:**
+- Organizza i file KB in cartelle logiche (`data/`, `knowledge/`, `reports/`)
+- Usa naming conventions consistenti per facilitare glob pattern
+- Monitora le dimensioni dei file per evitare timeout di upload
+
+**Sicurezza e privacy:**
+- `inline` mantiene file locali (più sicuro per dati sensibili)  
+- `upload` invia file ai provider AI (verifica policy di privacy)
+- Considera `hybrid` per bilanciare funzionalità e controllo dati
+
+**Supporto provider per upload:**
+- **MockProvider**: Supporto simulato per testing e sviluppo
+- **GeminiProvider**: Integrazione nativa con Gemini File API
+- **OpenAIProvider**: Supporto OpenAI Files API  
+- **Fallback automatico**: Se upload non disponibile, usa estrazione testo locale
 
 
-## Esempi completi
+## Esempi completi con Knowledge Base
 
-1) Esempio di config YAML (semplificato)
+### Esempio 1: KB Inline per analisi documenti
+
+```yaml
+# Configurazione per analizzare documenti locali
+- id: analizza_vendite
+  type: generative
+  prompt: |
+    Basandoti sui dati della knowledge base, fornisci un'analisi delle vendite:
+    - Trend principali
+    - Anomalie o insight interessanti
+    - Raccomandazioni
+  kb:
+    enabled: true
+    strategy: "inline"
+    paths: ["data/vendite*.json", "reports/*.csv"]
+    max_chars: 8000
+```
+
+### Esempio 2: KB Upload per elaborazione AI nativa
+
+```yaml
+# Caricamento diretto di PDF per elaborazione AI
+- id: riassumi_contratti
+  type: generative
+  prompt: "Riassumi i contratti caricati evidenziando clausole chiave"
+  kb:
+    enabled: true
+    strategy: "upload"
+    paths: ["contratti/*.pdf", "legal_docs/*.docx"]
+    upload: true
+    mime_type: "application/pdf"
+```
+
+### Esempio 3: KB Hybrid per analisi completa
+
+```yaml
+# Combina upload binario + testo estratto
+- id: analisi_completa
+  type: generative
+  prompt: "Analizza i documenti sia come testo che come file binari"
+  kb:
+    enabled: true
+    strategy: "hybrid"
+    paths: ["documenti/**/*.pdf"]
+    upload: true
+    as_text: true
+    max_chars: 10000
+```
+
+### Esempio 4: KB Summarize per overview
+
+```yaml
+# Panoramica rapida di molti documenti
+- id: overview_progetto
+  type: generative
+  prompt: "Fornisci una panoramica generale basata sui riassunti"
+  kb:
+    enabled: true
+    strategy: "summarize"
+    paths: ["progetto/**/*.md", "docs/**/*.txt"]
+```
+
+### Esempio 5: KB Retrieve per ricerca contestuale
+
+```yaml
+# Ricerca intelligente nel contenuto
+- id: ricerca_specifica
+  type: generative
+  prompt: "Cerca informazioni su {{argomento}} nella knowledge base"
+  kb:
+    enabled: true
+    strategy: "retrieve"
+    paths: ["knowledge/**/*"]
+  vars:
+    argomento: "machine learning"
+```
+
+### Esempio 1: Config YAML completo
 
 ```yaml
 project:
@@ -154,7 +270,12 @@ workflow:
 			type: generative
 			returns: image
 			prompt: |
-				Say hello to {{name}}
+				Analizza la knowledge base e saluta {{name}}
+			kb:
+				enabled: true
+				strategy: "inline"
+				paths: ["knowledge/*.md", "data/*.json"]
+				max_chars: 5000
 		- id: code1
 			type: code
 			returns: image
@@ -185,18 +306,18 @@ workflow:
 			adapter: pptx
 ```
 
-2) Esempio di template DOCX (snippet Jinja-like)
+### Esempio 2: Template DOCX (snippet Jinja-like)
 
 - `templates/demo_template.docx` può contenere testi come:
 	- `Hello {{greeting}}`
 	- `Name: {{name}}`
 	- `{{image:image}}`  (qui l'adapter inserirà l'immagine se disponibile)
 
-3) Esempio `CodeAction` inline
+### Esempio 3: `CodeAction` inline
 
 Nel campo `code` dell'action inserire uno script Python. Lo script riceve un dizionario di variabili come JSON su stdin e può restituire un dizionario di nuove variabili stampando `VARS_JSON={...}` su stdout. Vedere l'esempio YAML sopra.
 
-4) Usare `inspect-template` per vedere i placeholder
+### Esempio 4: Usare `inspect-template` per vedere i placeholder
 
 ```powershell
 python -m docflow.cli inspect-template templates/demo_template.docx --adapter docx
@@ -255,6 +376,23 @@ Se ricevi questo errore quando esegui i comandi CLI, significa che il pacchetto 
 pip install -e .
 ```
 
+### Problemi con Knowledge Base
+
+**Errore "No files found matching pattern":**
+- Verifica che i percorsi in `kb.paths` siano corretti rispetto a `base_dir`
+- Controlla che i file esistano: `ls data/*.pdf` o `dir data\*.pdf`
+- Usa percorsi assoluti per debug: `C:\path\to\files\*.pdf`
+
+**Upload fallisce con provider AI:**
+- Verifica che le API key siano configurate correttamente
+- Controlla che il provider supporti upload (MockProvider solo per test)
+- File troppo grandi potrebbero causare timeout - usa `max_chars` per limitare
+
+**Estrazione testo da PDF non funziona:**
+- Assicurati che `pypdf` sia installato: `pip install pypdf`
+- Alcuni PDF protetti o scansionati potrebbero non essere leggibili
+- Considera OCR esterno per PDF image-based
+
 ### Errore "Unable to create process using python.exe"
 
 Se pip cerca di usare un Python in un percorso diverso, assicurati di:
@@ -299,8 +437,11 @@ logger.info('starting', extra={'stage': 'init'})
 ```
 
 - Nota: i provider AI e le action usano chiamate di logging; abilitare il logger su file facilita il tracciamento degli upload e degli errori.
-- Requisiti: se usi PDF nel tuo KB, assicurati che `pypdf` sia installato (è elencato in `requirements.txt` e `pyproject.toml`).
- - Esempio: per vedere un esempio pratico che usa `attachments`, guarda `config/example.config_with_attachments.yaml` incluso nel repository.
+- Requisiti: per utilizzare il sistema KB con PDF, assicurati che `pypdf` sia installato (incluso in `requirements.txt`).
+- Per esempi pratici del sistema KB unificato, consulta:
+  - `example/config.yaml` - configurazione reale funzionante
+  - `config/example.config.yaml` - esempio base
+  - `tests/test_unified_kb.py` - test completi di tutte le strategie
  
 ### Uso di `.env` e `python-dotenv`
 
