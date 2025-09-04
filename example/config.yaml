@@ -20,6 +20,7 @@ workflow:
         enabled: true
         paths: ["data/documento_kb.pdf"]
         strategy: inline # Estrae il testo dal PDF e lo passa al prompt
+        max_chars: 1000
 
     # Azione 3: Codice, inline, per ottenere la data
     - id: calcola_data

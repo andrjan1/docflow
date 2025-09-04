@@ -7,7 +7,16 @@ def strategy_inline(cfg: Dict[str, Any], vars: Dict[str, Any]) -> Optional[str]:
     paths = [Path(p) for p in cfg.get('paths', [])]
     files = collect_files(paths, cfg.get('include_glob', '**/*.md'))
     texts = read_kb_texts(files)
-    txt = concat_and_truncate(texts, cfg.get('max_chars', 10000))
+    # Supporta max_chars dinamico basato su variabili
+    max_chars = cfg.get('max_chars', 10000)
+    if isinstance(max_chars, str) and max_chars.startswith('{{'):
+        # Supporto per template Jinja nei parametri (es: '{{max_length}}')
+        from jinja2 import Template
+        try:
+            max_chars = int(Template(max_chars).render(**vars))
+        except:
+            max_chars = 10000
+    txt = concat_and_truncate(texts, max_chars)
     return txt or None
 
 
