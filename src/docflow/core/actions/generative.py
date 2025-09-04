@@ -7,7 +7,7 @@ from pathlib import Path
 from ..results import ActionResult
 from ..context import ExecutionContext
 from ...runtime.prompt_builder import build_prompt_for_action
-from ...kb.strategies import prepare_kb_for_action
+from ...kb.strategies import kb_strategy_processor
 from ...kb.loader import read_kb_texts
 from ...logging_lib import setup_logger
 
@@ -44,30 +44,6 @@ class GenerativeAction:
     def __init__(self, cfg: Dict[str, Any]):
         self.cfg = cfg or {}
 
-    def _resolve_attachment_paths(self, attachments_cfg: Dict[str, Any]) -> list[Path]:
-        paths = []
-        raw = attachments_cfg.get('paths', []) if attachments_cfg else []
-        for p in raw:
-            pstr = str(p)
-            # if pattern contains glob wildcard and is absolute, use glob.glob
-            if any(ch in pstr for ch in ['*', '?', '[']):
-                import glob
-
-                matches = [Path(x) for x in glob.glob(pstr, recursive=True)]
-                if matches:
-                    paths.extend(matches)
-                    continue
-                # no matches -> explicit log; do not silently glob elsewhere
-                logger.info({'event': 'attachments_glob_no_match', 'pattern': pstr})
-                continue
-
-            pth = Path(pstr)
-            if pth.exists():
-                paths.append(pth)
-            else:
-                logger.info({'event': 'attachment_path_missing', 'path': pstr})
-        return paths
-
     def _get_client(self, ctx: Dict[str, Any]):
         # prefer ExecutionContext.ai_client if available
         if isinstance(ctx, dict):
@@ -77,31 +53,40 @@ class GenerativeAction:
         return MockAIClient(provider=self.cfg.get('provider', 'mock'), model=self.cfg.get('model', 'mock-1'))
 
     def execute(self, ctx: ExecutionContext) -> ActionResult:
-        # gather variables and build prompt
+        # gather variables and build context using unified KB system
         vars_in = ctx.global_vars if ctx is not None else {}
-        kb_text = prepare_kb_for_action(self.cfg, vars_in)
+        
+        # Process KB using unified strategy (replaces both old KB and attachments)
+        kb_result = {}
+        if self.cfg.get('kb') and self.cfg.get('kb', {}).get('enabled'):
+            kb_result = kb_strategy_processor.process_kb(self.cfg.get('kb', {}), vars_in)
+        
+        # Extract KB text for prompt building (backward compatibility)
+        kb_text = kb_result.get('kb_text', '')
+        
+        # Build the prompt
         prompt = build_prompt_for_action(self.cfg, vars_in, kb_text) or self.cfg.get('prompt', 'Hello')
 
         client = self._get_client(ctx)
-        attachments_cfg = self.cfg.get('attachments') or {}
-        attachment_paths = self._resolve_attachment_paths(attachments_cfg) if attachments_cfg else []
-        remote_refs: list[Any] = []  # type: ignore[name-defined]
-        if attachment_paths:
-            logger.info({'event': 'attachments_found', 'count': len(attachment_paths)})
-            if attachments_cfg.get('upload') and client and hasattr(client, 'upload_file'):
-                mime = attachments_cfg.get('mime')
-                for p in attachment_paths:
-                    remote_refs.append(client.upload_file(str(p), mime_type=mime))
-                logger.info({'event': 'attachments_uploaded', 'count': len(remote_refs)})
-            if attachments_cfg.get('as_text'):
-                texts = read_kb_texts([p for p in attachment_paths if p.is_file()])
-                if texts:
-                    prompt += '\n\n=== ATTACHED FILES TEXT ===\n\n' + '\n\n'.join(t for t in texts if t)
-                    logger.info({'event': 'attachments_text_extracted', 'chars': sum(len(t) for t in texts)})
-
+        
+        # Handle file uploads from unified KB system
         provider_kwargs: Dict[str, Any] = {}
-        if remote_refs:
-            provider_kwargs['attachments'] = remote_refs
+        remote_refs = kb_result.get('attachments', [])
+        if remote_refs and client and hasattr(client, 'upload_file'):
+            uploaded_refs = []
+            for attachment in remote_refs:
+                try:
+                    uploaded_ref = client.upload_file(
+                        attachment['path'], 
+                        mime_type=attachment.get('mime_type')
+                    )
+                    uploaded_refs.append(uploaded_ref)
+                except Exception as e:
+                    logger.info({'event': 'kb_upload_error', 'path': attachment['path'], 'error': str(e)})
+            
+            if uploaded_refs:
+                provider_kwargs['attachments'] = uploaded_refs
+                logger.info({'event': 'kb_files_uploaded', 'count': len(uploaded_refs)})
 
         retries = int(self.cfg.get('retries', 1) or 1)
         last_exc: Exception | None = None

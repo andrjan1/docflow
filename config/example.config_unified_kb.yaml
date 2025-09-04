@@ -1,0 +1,95 @@
+project:
+  base_dir: .
+  output_dir: build/output
+  temp_dir: build/tmp
+
+ai:
+  provider: gemini
+  model: gemini-2.5-flash
+  api_key_envvar: GEMINI_API_KEY
+
+workflow:
+  actions:
+    # Example 1: Inline strategy - extract text and include in prompt
+    - id: analyze_text_documents
+      type: generative
+      returns: text
+      prompt: "Analyze the following documents and provide key insights: {{kb_text}}"
+      kb:
+        enabled: true
+        paths: ["data/*.md", "data/*.txt"]
+        strategy: inline
+        as_text: true
+        max_chars: 20000
+        include_glob: "**/*"
+
+    # Example 2: Upload strategy - upload files directly to AI provider  
+    - id: analyze_pdf_files
+      type: generative
+      returns: text
+      prompt: "Analyze the uploaded PDF documents"
+      kb:
+        enabled: true
+        paths: ["documents/*.pdf"]
+        strategy: upload
+        upload: true
+        as_text: false
+        mime_type: "application/pdf"
+
+    # Example 3: Hybrid strategy - both text extraction and file upload
+    - id: comprehensive_analysis
+      type: generative
+      returns: text
+      prompt: "Perform comprehensive analysis using both extracted text and original files"
+      kb:
+        enabled: true
+        paths: ["data/*.docx", "data/*.pdf"]
+        strategy: hybrid
+        upload: true
+        as_text: true
+        max_chars: 15000
+        mime_type: "auto"
+
+    # Example 4: Summarize strategy - extract snippets from documents
+    - id: quick_overview
+      type: generative
+      returns: text
+      prompt: "Provide a quick overview based on document summaries: {{kb_text}}"
+      kb:
+        enabled: true
+        paths: ["knowledge/**/*.md"]
+        strategy: summarize
+        as_text: true
+
+    # Example 5: Retrieve strategy - find relevant content based on input variables
+    - id: targeted_search
+      type: generative
+      returns: text
+      input_vars: ["query_term", "topic"]
+      prompt: "Answer the question based on relevant content: {{kb_text}}"
+      kb:
+        enabled: true
+        paths: ["knowledge/faq/*.md"]
+        strategy: retrieve
+        as_text: true
+
+    # Example 6: Code action (unchanged from original)
+    - id: calculate_date
+      type: code
+      returns: text
+      code: |
+        import datetime
+        import json
+        today = datetime.date.today().strftime('%d %B %Y')
+        print('VARS_JSON=' + json.dumps({'current_date': today}))
+
+  templates:
+    - path: "templates/analysis_report.docx"
+      adapter: docx
+      placeholder_map:
+        text_analysis: analyze_text_documents
+        pdf_analysis: analyze_pdf_files
+        comprehensive_analysis: comprehensive_analysis
+        overview: quick_overview
+        search_results: targeted_search
+        report_date: calculate_date

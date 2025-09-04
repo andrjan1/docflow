@@ -3,7 +3,11 @@
 Questa documentazione descrive i componenti del progetto DocFlow, come comunicano tra loro e come usarli sia da riga di comando che programmaticamente.
 ## Panoramica
 
-DocFlow è un piccolo framework per generare documenti (DOCX, PPTX) combinando azioni che producono testo/immagini con template Office. Le componenti principali sono:
+DocFlow è un piccolo framework per generare documenti (DOCX, PPTX) combinando azioni che producono testo/immagini con### Uso di `.enLa CLI car`python-dotenv` è presente in `requirements-dev.txt` per sviluppo; installalo nelle tue dipendenze di sviluppo se vuoi usarlo localmente.ca automaticamente `.env` quando eseguita (se `python-dotenv` è installato). In codice Python usa `python-dotenv` oppure `os.getenv` dopo il caricamento:` e `python-dotenv`
+
+Per comodità puoi mettere le chiavi API in un file `.env` nella root del progetto. Questo repository include `.env` in `.gitignore` per evitare commit accidentali.
+
+Esempio di `.env` (non commettere questo file): comodLa CLI car`python-dotenv` è presente in `requirements-dev.txt` per sviluppo; installalo nelle tue dipendenze di sviluppo se vuoi usarlo localmente.ca automaticamente `.env` quando eseguita (se `python-dotenv` è installato). In codice Python usa `python-dotenv` oppure `os.getenv` dopo il caricamento:tà puoi mettere le chiavi API in un file `.env` nella root del progetto. Questo repository include `.env` in `.gitignore` per evitare commit accidentali.mplate Office. Le componenti principali sono:
 - CLI: comandi per inizializzare un progetto, validare la config, eseguire una dry-run o generare i documenti.
 - Config: definisce la forma del file YAML di configurazione (`src/docflow/config.py`).
 - Actions: moduli che producono output (testo, immagini, variabili). Attualmente ci sono due tipi principali: `GenerativeAction` (mock) e `CodeAction` (esegue codice Python fornito dall'utente).

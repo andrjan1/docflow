@@ -11,19 +11,25 @@ workflow:
     - id: gen_with_kb
       type: generative
       returns: text
-      prompt: "Fornisci un sommario dei documenti allegati"
-      attachments:
+      prompt: "Fornisci un sommario dei documenti: {{kb_text}}"
+      kb:
+        enabled: true
         paths: ["kb/*.md", "kb/*.pdf"]
+        strategy: inline
         as_text: true
         upload: false
+        max_chars: 10000
     - id: gen_with_upload
       type: generative
       returns: text
-      prompt: "Analizza i riferimenti remoti allegati"
-      attachments:
+      prompt: "Analizza i documenti caricati"
+      kb:
+        enabled: true
         paths: ["kb/*.pdf"]
+        strategy: upload
         upload: true
-        mime: "application/pdf"
+        as_text: false
+        mime_type: "application/pdf"
 
   templates:
     - path: templates/demo_template.docx

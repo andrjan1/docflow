@@ -24,11 +24,23 @@ class AIConfig(BaseModel):
 
 
 class KBConfig(BaseModel):
+    """Unified Knowledge Base configuration supporting text extraction and file upload"""
     enabled: bool = False
     paths: List[Path] = Field(default_factory=list)
-    include_glob: str = '**/*.md'
+    include_glob: str = '**/*'
+    
+    # Processing strategy - UNIFIED
+    strategy: Literal['inline', 'upload', 'hybrid', 'summarize', 'retrieve'] = 'inline'
     max_chars: int = 10000
-    strategy: Literal['inline', 'summarize', 'retrieve-mock'] = 'inline'
+    
+    # Upload options (formerly attachments)
+    upload: bool = False
+    mime_type: Optional[str] = None
+    
+    # Text extraction options
+    as_text: bool = True
+    
+    # Advanced chunking
     chunk_size: int = 2000
     chunk_overlap: int = 200
 
@@ -52,7 +64,7 @@ class ActionConfig(BaseModel):
     code: Optional[str] = None
     code_file: Optional[Path] = None
     exports: List[ExportRule] = Field(default_factory=list)
-    attachments: Optional[dict] = None
+    # attachments field removed - now unified in kb
 
 
 class TemplateConfig(BaseModel):
