@@ -64,11 +64,125 @@ python -m docflow.cli.app inspect-template templates/demo_template.docx --adapte
 ### Actions
 
 - `GenerativeAction` (`src/docflow/core/actions/generative.py`): mock che produce un testo (`result_text`), un'immagine PNG in byte e un insieme di `vars` (es. `greeting`). È pensato come esempio/placeholder per integrazione con provider AI.
-- `CodeAction` (`src/docflow/core/actions/code.py`): esegue codice Python inline (campo `code`) o da file (`code_file`) in un processo isolato. Lo script riceve le variabili di input come JSON su stdin e può restituire nuove variabili stampando una linea `VARS_JSON={...}` su stdout. Non è più obbligatorio definire una funzione `run(vars)`.
+- `CodeAction` (`src/docflow/core/actions/code.py`): esegue codice Python inline (campo `code`) o da file (`code_file`) in un processo isolato. Lo script può definire una funzione `main(ctx)` che riceve il contesto completo e può restituire un dizionario di variabili (se `returns: vars`) o output diretto.
 
 Buone pratiche per `CodeAction`:
 - Restituire `vars` per aggiornare il contesto.
 - Restituire immagini come `bytes` (es. PNG) in chiavi con prefisso `image` (p.es. `image_chart`) così gli adapter le riconoscono.
+
+### Sistema di Variabili e Contesto
+
+DocFlow gestisce le variabili attraverso un **contesto condiviso** (`ctx`) che viene passato tra tutte le azioni del workflow.
+
+#### **Flusso delle variabili:**
+```
+Variabili Input → Azione → Variabili Output → Contesto → Prossima Azione
+```
+
+#### **Contesto condiviso (`ctx`):**
+- **Dizionario globale** che accumula tutte le variabili durante l'esecuzione
+- Ogni azione riceve `ctx` come input e può aggiornarlo
+- Le variabili sono disponibili per template Jinja2 e azioni successive
+
+#### **Tipi di output per le azioni (`returns`):**
+
+```yaml
+returns: text    # Salva risultato in ctx[action_id]
+returns: image   # Salva path immagine in ctx[action_id]
+returns: vars    # Aggiunge dizionario di variabili al contesto
+```
+
+#### **Esempio di flusso variabili:**
+
+```yaml
+workflow:
+  actions:
+    # 1. Inizializzazione variabili
+    - id: setup
+      type: code
+      returns: vars    # Aggiunge variabili al contesto
+      code: |
+        def main(ctx):
+            return {
+                'azienda': 'Altilia',
+                'tipo_report': 'mensile'
+            }
+    
+    # 2. Generazione usando variabili precedenti
+    - id: genera_intro
+      type: generative
+      returns: text    # Salva in ctx["genera_intro"]
+      prompt: "Scrivi introduzione per {{tipo_report}} di {{azienda}}"
+      kb:
+        enabled: true
+        paths: ["data/*.pdf"]
+        strategy: inline
+    
+    # 3. Calcolo con accesso a tutto il contesto
+    - id: calcola_metriche
+      type: code
+      returns: vars
+      code: |
+        def main(ctx):
+            # Accede a variabili precedenti
+            azienda = ctx.get('azienda', '')
+            intro = ctx.get('genera_intro', '')
+            
+            return {
+                'fatturato': 150000,
+                'clienti': 45
+            }
+```
+
+**Stato del contesto durante l'esecuzione:**
+```python
+# Dopo "setup"
+ctx = {'azienda': 'Altilia', 'tipo_report': 'mensile'}
+
+# Dopo "genera_intro"  
+ctx = {
+    'azienda': 'Altilia',
+    'tipo_report': 'mensile', 
+    'genera_intro': 'Benvenuti al report mensile...'
+}
+
+# Dopo "calcola_metriche"
+ctx = {
+    'azienda': 'Altilia',
+    'tipo_report': 'mensile',
+    'genera_intro': 'Benvenuti al report mensile...',
+    'fatturato': 150000,
+    'clienti': 45
+}
+```
+
+#### **Variabili nei template:**
+I template Office possono accedere a tutte le variabili in `ctx`:
+
+```docx
+<!-- Nel template DOCX -->
+Azienda: {{azienda}}
+Tipo: {{tipo_report}} 
+Introduzione: {{genera_intro}}
+Fatturato: {{fatturato}}
+Clienti: {{clienti}}
+```
+
+#### **Variabili iniziali:**
+**Non esistono variabili globali dichiarabili nel YAML**. Puoi inizializzarle con:
+
+1. **Prima azione di setup:** Usa `type: code` con `returns: vars`
+2. **Hardcode nei prompt:** Inserisci valori fissi direttamente
+3. **File esterni:** Carica da JSON/CSV con azioni code
+
+#### **Best practices variabili:**
+- ✅ Usa nomi descrittivi (`fatturato_mensile` vs `f1`)
+- ✅ Inizializza variabili comuni in una prima azione
+- ✅ Organizza azioni in sequenza logica
+- ✅ Usa `returns: vars` per dati calcolati
+- ✅ Usa `returns: text/image` per contenuto finale
+- ❌ Non puoi modificare variabili di azioni precedenti
+- ❌ Non fare affidamento su ordine non sequenziale
 
 ### Adapters
 
@@ -254,7 +368,7 @@ kb:
     argomento: "machine learning"
 ```
 
-### Esempio 1: Config YAML completo
+### Esempio 1: Config YAML completo con gestione variabili
 
 ```yaml
 project:
@@ -266,44 +380,96 @@ ai:
 
 workflow:
 	actions:
-		- id: gen1
+		# Inizializzazione variabili di progetto
+		- id: init_progetto
+			type: code
+			returns: vars
+			code: |
+				from datetime import datetime
+				def main(ctx):
+					return {
+						'azienda': 'Altilia',
+						'data_report': datetime.now().strftime('%d/%m/%Y'),
+						'tipo_documento': 'Report Mensile'
+					}
+		
+		# Generazione contenuto con KB e variabili
+		- id: genera_analisi
 			type: generative
-			returns: image
+			returns: text
 			prompt: |
-				Analizza la knowledge base e saluta {{name}}
+				Azienda: {{azienda}}
+				Data: {{data_report}}
+				
+				Analizza la knowledge base e crea un'analisi per il {{tipo_documento}}
 			kb:
 				enabled: true
 				strategy: "inline"
 				paths: ["knowledge/*.md", "data/*.json"]
 				max_chars: 5000
-		- id: code1
+		
+		# Calcolo metriche basato su analisi
+		- id: calcola_kpi
+			type: code
+			returns: vars
+			code: |
+				def main(ctx):
+					# Accesso alle variabili precedenti
+					analisi = ctx.get('genera_analisi', '')
+					azienda = ctx.get('azienda', '')
+					
+					# Calcoli simulati
+					return {
+						'vendite_totali': 150000,
+						'crescita_percentuale': 12.5,
+						'numero_clienti': 45,
+						'kpi_principale': 'Crescita positiva'
+					}
+		
+		# Generazione grafici con tutti i dati
+		- id: genera_grafico
 			type: code
 			returns: image
 			code: |
 				import matplotlib.pyplot as plt
-				import io
-				import json
 				import os
-
-				# Create a dummy chart
-				fig, ax = plt.subplots()
-				ax.plot([1, 2, 3], [1, 4, 9])
-				ax.set_title(vars.get('greeting', 'chart'))
-
-				# Save it to a temporary path
-				fpath = "build/tmp/chart.png"
-				os.makedirs(os.path.dirname(fpath), exist_ok=True)
-				fig.savefig(fpath, format='png')
-
-				# Return vars and the path to the generated image
-				print('VARS_JSON=' + json.dumps({'charted': True}))
-				print(fpath)
+				
+				def main(ctx):
+					# Usa le variabili calcolate
+					vendite = ctx.get('vendite_totali', 0)
+					crescita = ctx.get('crescita_percentuale', 0)
+					
+					fig, ax = plt.subplots()
+					ax.bar(['Vendite', 'Crescita'], [vendite/1000, crescita])
+					ax.set_title(f"KPI {ctx.get('azienda', '')}")
+					
+					fpath = "build/tmp/kpi_chart.png"
+					os.makedirs(os.path.dirname(fpath), exist_ok=True)
+					fig.savefig(fpath, format='png')
+					
+					return fpath
 
 	templates:
-		- path: templates/demo_template.docx
+		- path: templates/report_template.docx
 			adapter: docx
-		- path: templates/demo_template.pptx
-			adapter: pptx
+```
+
+**Template corrispondente (`templates/report_template.docx`):**
+```docx
+REPORT {{tipo_documento}} - {{azienda}}
+Data: {{data_report}}
+
+ANALISI:
+{{genera_analisi}}
+
+METRICHE:
+- Vendite Totali: €{{vendite_totali}}
+- Crescita: {{crescita_percentuale}}%
+- Clienti: {{numero_clienti}}
+- KPI: {{kpi_principale}}
+
+GRAFICO:
+{{image:genera_grafico}}
 ```
 
 ### Esempio 2: Template DOCX (snippet Jinja-like)
