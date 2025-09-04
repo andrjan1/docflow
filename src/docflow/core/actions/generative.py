@@ -59,13 +59,21 @@ class GenerativeAction:
         # Process KB using unified strategy (replaces both old KB and attachments)
         kb_result = {}
         if self.cfg.get('kb') and self.cfg.get('kb', {}).get('enabled'):
-            kb_result = kb_strategy_processor.process_kb(self.cfg.get('kb', {}), vars_in)
+            # Pass verbose flag to KB processing
+            kb_vars = vars_in.copy()
+            kb_vars['_verbose'] = getattr(ctx, 'verbose', False)
+            kb_result = kb_strategy_processor.process_kb(self.cfg.get('kb', {}), kb_vars)
         
         # Extract KB text for prompt building (backward compatibility)
         kb_text = kb_result.get('kb_text', '')
         
         # Build the prompt
         prompt = build_prompt_for_action(self.cfg, vars_in, kb_text) or self.cfg.get('prompt', 'Hello')
+        
+        # Log resolved prompt if verbose
+        if getattr(ctx, 'verbose', False):
+            prompt_preview = prompt[:500] + '...' if len(prompt) > 500 else prompt
+            logger.info({'event': 'generative_prompt_resolved', 'id': self.cfg.get('id'), 'prompt': prompt_preview})
 
         client = self._get_client(ctx)
         

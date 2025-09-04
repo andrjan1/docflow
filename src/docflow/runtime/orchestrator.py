@@ -18,10 +18,11 @@ ADAPTERS = {'docx': DocxAdapter, 'pptx': PptxAdapter}
 
 def run_config(path: str, verbose: bool = False) -> Dict[str, Any]:
     cfg = load_config(path)
-    # configure logging level from config
-    if cfg.project.log_level:
-        reconfigure_log_level(cfg.project.log_level)
-        logger.info({'event': 'log_level_configured', 'level': cfg.project.log_level})
+    
+    # Configure logging level - use DEBUG if verbose
+    log_level = 'DEBUG' if verbose else (cfg.project.log_level or 'INFO')
+    reconfigure_log_level(log_level)
+    logger.info({'event': 'log_level_configured', 'level': log_level, 'verbose': verbose})
     ai = make_ai_client(cfg.ai.model and {'provider': cfg.ai.provider, 'model': cfg.ai.model, 'api_key_envvar': cfg.ai.api_key_envvar} or {'provider': cfg.ai.provider})
     ctx = ExecutionContext()
     ctx.ai_client = ai
@@ -53,9 +54,13 @@ def run_config(path: str, verbose: bool = False) -> Dict[str, Any]:
     actions = [_dump(a) for a in cfg.workflow.actions]
     start_all = time.time()
     # capture per-action results so we can map them into template placeholders
-    logger.info({'event': 'workflow_start', 'actions': len(actions)})
+    logger.info({'event': 'workflow_start', 'actions': len(actions), 'verbose': verbose})
+    
+    # Pass verbose flag to execution context for more detailed logging
+    ctx.verbose = verbose
+    
     action_results = execute_workflow(actions, ctx)
-    logger.info({'event': 'workflow_end', 'actions': len(action_results)})
+    logger.info({'event': 'workflow_end', 'actions': len(action_results), 'verbose': verbose})
     total_time = time.time() - start_all
 
     # render templates

@@ -4,6 +4,7 @@ from .results import ActionResult
 from .registry import make_action
 from jinja2 import Template
 from ..logging_lib import setup_logger
+import time
 
 logger = setup_logger(__name__)
 
@@ -63,10 +64,30 @@ def execute_workflow(actions: List[Dict[str, Any]], ctx: ExecutionContext) -> Di
     for a in order:
         ad = _as_dict(a)
         act = make_action(ad, ctx)
+        
+        # Start timing
+        action_start_time = time.time()
+        
         logger.info({'event': 'action_start', 'id': ad.get('id'), 'type': ad.get('type')})
+        
+        # Log current context variables if verbose
+        if getattr(ctx, 'verbose', False):
+            ctx_vars = {k: str(v)[:100] + '...' if len(str(v)) > 100 else str(v) 
+                       for k, v in ctx.global_vars.items()}
+            logger.info({'event': 'action_context_vars', 'id': ad.get('id'), 'vars': ctx_vars})
+        
         # call the standardized execute(ctx) method on actions
         res = act.execute(ctx)
-        logger.info({'event': 'action_end', 'id': ad.get('id')})
+        
+        # Calculate timing
+        action_duration = time.time() - action_start_time
+        
+        # Log action result if verbose
+        if getattr(ctx, 'verbose', False) and res:
+            result_preview = str(res.data)[:200] + '...' if res.data and len(str(res.data)) > 200 else str(res.data)
+            logger.info({'event': 'action_result', 'id': ad.get('id'), 'kind': res.kind, 'preview': result_preview})
+        
+        logger.info({'event': 'action_end', 'id': ad.get('id'), 'duration_s': round(action_duration, 3)})
         # normalize to ActionResult if dict
         if isinstance(res, dict):
             # prefer explicit keys

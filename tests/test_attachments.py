@@ -21,13 +21,15 @@ def test_attachments_as_text_and_upload(tmp_path: Path):
     f2 = tmp_path / 'data.txt'
     f2.write_text('Some logs and details about timeout and errors')
 
-    # action config with attachments
+    # action config with unified KB system (replaces old attachments)
     cfg = {
-        'attachments': {
+        'kb': {
+            'enabled': True,
+            'strategy': 'hybrid',  # Both text and upload
             'paths': [str(tmp_path / '*.md'), str(f2)],
             'as_text': True,
             'upload': True,
-            'mime': 'application/pdf',
+            'mime_type': 'application/pdf',
         }
     }
 
@@ -41,4 +43,5 @@ def test_attachments_as_text_and_upload(tmp_path: Path):
 
     assert res.kind == 'text'
     # ensure upload attempted (recorder recorded something) or at least as_text concatenation worked
-    assert recorder.uploads or 'ATTACHED FILES TEXT' in res.data
+    # With unified KB system, text should be included in the prompt and thus in the AI response
+    assert recorder.uploads or '# Title' in res.data or 'installation' in res.data

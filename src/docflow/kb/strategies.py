@@ -1,6 +1,9 @@
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 from .loader import collect_files, read_kb_texts, concat_and_truncate
+from ..logging_lib import setup_logger
+
+logger = setup_logger(__name__)
 
 
 class UnifiedKBStrategy:
@@ -27,18 +30,31 @@ class UnifiedKBStrategy:
         files = [p for p in expanded_paths if p.exists() and p.is_file()]
         strategy = cfg.get('strategy', 'inline')
         
+        # Log KB processing if verbose available in vars context
+        verbose_mode = vars.get('_verbose', False) if isinstance(vars, dict) else False
+        if verbose_mode:
+            logger.info({'event': 'kb_processing_start', 'strategy': strategy, 'files_found': len(files), 'paths': [str(f) for f in files[:10]]})  # Limit to first 10 for readability
+        
         if strategy == "inline":
-            return self._strategy_inline(files, cfg)
+            result = self._strategy_inline(files, cfg)
         elif strategy == "upload":
-            return self._strategy_upload(files, cfg)
+            result = self._strategy_upload(files, cfg)
         elif strategy == "hybrid":
-            return self._strategy_hybrid(files, cfg)
+            result = self._strategy_hybrid(files, cfg)
         elif strategy == "summarize":
-            return self._strategy_summarize(files, cfg)
+            result = self._strategy_summarize(files, cfg)
         elif strategy == "retrieve":
-            return self._strategy_retrieve(files, cfg, vars)
+            result = self._strategy_retrieve(files, cfg, vars)
         else:
             raise ValueError(f"Unknown KB strategy: {strategy}")
+            
+        # Log KB processing result if verbose
+        if verbose_mode:
+            kb_text_length = len(result.get('kb_text', ''))
+            attachments_count = len(result.get('attachments', []))
+            logger.info({'event': 'kb_processing_end', 'strategy': strategy, 'kb_text_chars': kb_text_length, 'attachments': attachments_count})
+        
+        return result
     
     def _strategy_inline(self, files: List[Path], cfg: Dict[str, Any]) -> Dict[str, Any]:
         """Extract text and return as knowledge_base"""

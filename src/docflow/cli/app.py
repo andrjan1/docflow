@@ -7,6 +7,7 @@ from ..adapters.pptx_adapter import PptxAdapter
 from typing import List
 from rich.table import Table
 from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn
 from ..kb.strategies import prepare_kb_for_action
 from ..runtime.prompt_builder import build_prompt_for_action
 # attempt to load .env from project root for CLI runs
@@ -64,16 +65,50 @@ def dry_run(config: str, verbose: bool = False):
 
 @app.command()
 def run(config: str, verbose: bool = False):
-    res = run_config(config, verbose=verbose)
+    if verbose:
+        # Show progress for verbose mode
+        console = Console()
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            console=console,
+            transient=False
+        ) as progress:
+            task = progress.add_task("Running DocFlow workflow...", total=100)
+            progress.update(task, advance=20, description="Loading configuration...")
+            
+            # Simulate progress updates by patching the orchestrator
+            original_run = run_config
+            def run_with_progress(*args, **kwargs):
+                progress.update(task, advance=30, description="Executing actions...")
+                result = original_run(*args, **kwargs)
+                progress.update(task, advance=40, description="Rendering templates...")
+                progress.update(task, advance=10, description="Finalizing output...")
+                return result
+            
+            res = run_with_progress(config, verbose=verbose)
+    else:
+        res = run_config(config, verbose=verbose)
+    
     typer.echo(f'Wrote {len(res)} files')
     if verbose:
         console = Console()
         # show files and basic counts
-        table = Table('file')
-        table.add_column('file')
+        table = Table('file', 'size')
         for f in res.keys():
-            table.add_row(f)
+            try:
+                size = Path(f).stat().st_size
+                size_str = f"{size:,} bytes"
+            except:
+                size_str = "unknown"
+            table.add_row(f, size_str)
         console.print(table)
+        typer.echo(f'\n✅ Workflow completed successfully')
+        typer.echo(f'📁 Output directory: {Path(config).parent / "build/output"}')
+        typer.echo(f'💡 Use --help for more CLI options')
 
 
 @app.command()
